@@ -15,7 +15,7 @@ from pathlib import Path
 logging.basicConfig(format="  %(levelname)s: %(message)s", level=logging.WARNING)
 
 from .binary import find_claude_binary
-from .config import Config, die, find_config, load_config
+from .config import Config, die, find_config, find_profile_for_cwd, load_config
 from .launcher import launch
 from .shim import install_shim, uninstall_shim
 from .ui import add_profile, show_first_run, show_list, show_selector
@@ -121,12 +121,15 @@ def main() -> None:
         _launch_by_key(config.settings.default_profile, config, binary, forward_args)
         return
 
+    cwd_key, _ = find_profile_for_cwd(config.profiles)
+
     show_selector(
         config.profiles,
         binary,
         forward_args,
         config.settings.show_profile_info,
         config_path,
+        default_key=cwd_key,
     )
 
 

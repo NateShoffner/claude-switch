@@ -79,11 +79,22 @@ The config file lives at `~/claude-switch.json`. It's created with defaults on f
 
 ### Profile fields
 
-| Field         | Required | Description                                             |
-|---------------|----------|---------------------------------------------------------|
-| `name`        | yes      | Display name shown in the selector                      |
-| `config_dir`  | yes      | Path to this profile's Claude config dir (`~` expands)  |
-| `description` | no       | Subtitle shown in the selector                          |
+| Field           | Required | Description                                             |
+|-----------------|----------|---------------------------------------------------------|
+| `name`          | yes      | Display name shown in the selector                      |
+| `config_dir`    | yes      | Path to this profile's Claude config dir (`~` expands)  |
+| `description`   | no       | Subtitle shown in the selector                          |
+| `working_paths` | no       | Glob patterns — auto-selects this profile when cwd matches |
+
+If `working_paths` is set and the current directory matches a profile, the selector opens with that profile pre-selected as a suggestion. You can confirm or choose a different one.
+
+```json
+"work": {
+  "name": "Work",
+  "config_dir": "~/.claude-work",
+  "working_paths": ["~/work/**", "D:/Work/**"]
+}
+```
 
 ### Settings fields
 
@@ -145,6 +156,12 @@ claude-acme = "claude_switch.cli:profile"
 ```
 
 The command name determines the profile key — `claude-acme` launches the `acme` profile automatically.
+
+---
+
+## Disclaimer
+
+This project is an independent, community-built tool and is not affiliated with, endorsed by, or supported by Anthropic. Use at your own risk. The author(s) make no warranties of any kind and accept no responsibility for any issues arising from its use, including but not limited to account problems, data loss, or violations of Anthropic's terms of service.
 
 ---
 

@@ -159,6 +159,7 @@ def show_selector(
     forward_args: list[str],
     show_info: bool,
     config_path: Path | None = None,
+    default_key: str | None = None,
 ) -> None:
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
@@ -180,9 +181,12 @@ def show_selector(
         choices.append(questionary.Separator())
         choices.append(questionary.Choice(title="⚙  Edit config", value="__edit__"))
 
+    default_choice = next((c for c in choices if isinstance(c, questionary.Choice) and c.value == default_key), None)
+
     answer = questionary.select(
         "Which account?",
         choices=choices,
+        default=default_choice,
         style=_STYLE,
         use_shortcuts=False,
         instruction="(↑↓ · enter)",
