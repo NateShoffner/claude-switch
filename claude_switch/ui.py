@@ -173,6 +173,7 @@ def show_selector(
         title = f"{dot}{p.name}"
         if p.description:
             title += f"  —  {p.description}"
+        title += f"  [{key}]"
         choices.append(questionary.Choice(title=title, value=key))
         if i < len(items) - 1:
             choices.append(questionary.Separator(""))
@@ -189,7 +190,9 @@ def show_selector(
         default=default_choice,
         style=_STYLE,
         use_shortcuts=False,
-        instruction="(↑↓ · enter)",
+        use_jk_keys=False,
+        use_search_filter=True,
+        instruction="(↑↓ · type to filter · enter)",
     ).ask()
 
     if not answer:
@@ -263,6 +266,117 @@ def add_profile(config, config_path: Path) -> None:
                     f"  To add a direct launch command, add this to pyproject.toml:\n",
                 ),
                 (f"fg:{_CYAN}", f'    claude-{key} = "claude_switch.cli:profile"'),
+                ("", "\n\n"),
+            ]
+        )
+    )
+
+
+def remove_profile(config, config_path: Path, key: str) -> None:
+    if key not in config.profiles:
+        available = ", ".join(config.profiles.keys())
+        die(f"Profile '{key}' not found. Available: {available}")
+
+    if len(config.profiles) == 1:
+        die("Cannot remove the last profile.")
+
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
+    _print_header(config.profiles, config_path)
+
+    p = config.profiles[key]
+    _print(
+        FormattedText(
+            [
+                ("", "  "),
+                (f"fg:{_WHITE} bold", p.name),
+                ("", "  "),
+                (f"fg:{_DIM}", p.config_dir),
+                ("", "\n"),
+                *([(f"fg:{_DIM}", f"  {p.description}\n")] if p.description else []),
+                ("", "\n"),
+            ]
+        )
+    )
+
+    answer = questionary.confirm(
+        f"Remove profile '{key}'?", default=False, style=_STYLE
+    ).ask()
+
+    if not answer:
+        return
+
+    del config.profiles[key]
+    if config.settings.default_profile == key:
+        config.settings.default_profile = None
+
+    save_config(config, config_path)
+
+    _print(
+        FormattedText(
+            [
+                ("", "\n"),
+                (f"fg:{_GREEN} bold", "  ✓ "),
+                (f"fg:{_WHITE}", f"Profile '{key}' removed."),
+                ("", "\n\n"),
+            ]
+        )
+    )
+
+
+def edit_profile(config, config_path: Path, key: str) -> None:
+    if key not in config.profiles:
+        available = ", ".join(config.profiles.keys())
+        die(f"Profile '{key}' not found. Available: {available}")
+
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
+    _print_header(config.profiles, config_path)
+
+    _print(
+        FormattedText(
+            [
+                ("", "  "),
+                (f"fg:{_DIM}", "Editing profile: "),
+                (f"fg:{_CYAN}", key),
+                ("", "\n\n"),
+            ]
+        )
+    )
+
+    existing = config.profiles[key]
+
+    answers = questionary.form(
+        name=questionary.text(
+            "Display name:",
+            default=existing.name,
+            validate=lambda v: True if v.strip() else "Name cannot be empty",
+        ),
+        config_dir=questionary.text(
+            "Config directory:",
+            default=existing.config_dir,
+            instruction="(where Claude stores this account's data)",
+        ),
+        description=questionary.text("Description:", default=existing.description, instruction="(optional)"),
+    ).ask()
+
+    if answers is None:
+        return
+
+    config.profiles[key] = Profile(
+        name=answers["name"].strip(),
+        config_dir=answers["config_dir"].strip(),
+        description=answers["description"].strip(),
+        working_paths=existing.working_paths,
+    )
+    save_config(config, config_path)
+
+    _print(
+        FormattedText(
+            [
+                ("", "\n"),
+                (f"fg:{_GREEN} bold", "  ✓ "),
+                (f"fg:{_WHITE}", f"Profile '{key}' updated."),
                 ("", "\n\n"),
             ]
         )

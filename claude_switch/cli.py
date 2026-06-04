@@ -18,7 +18,8 @@ from .binary import find_claude_binary
 from .config import Config, die, find_config, find_profile_for_cwd, load_config
 from .launcher import launch
 from .shim import install_shim, uninstall_shim
-from .ui import add_profile, show_first_run, show_list, show_selector
+from .state import load_state
+from .ui import add_profile, edit_profile, remove_profile, show_first_run, show_list, show_selector
 
 
 def _base_parser(prog: str, description: str) -> argparse.ArgumentParser:
@@ -32,11 +33,10 @@ def _base_parser(prog: str, description: str) -> argparse.ArgumentParser:
     return p
 
 
-def _load(config_override: str | None) -> tuple[Config, str, Path, bool]:
+def _load(config_override: str | None) -> tuple[Config, Path, bool]:
     config_path, is_new = find_config(config_override)
     config = load_config(config_path)
-    binary = find_claude_binary(config.settings)
-    return config, binary, config_path, is_new
+    return config, config_path, is_new
 
 
 def _launch_by_key(
@@ -79,6 +79,12 @@ def main() -> None:
         "--add", action="store_true", help="Add a new profile interactively."
     )
     parser.add_argument(
+        "--edit", metavar="KEY", help="Edit an existing profile interactively."
+    )
+    parser.add_argument(
+        "--remove", metavar="KEY", help="Remove a profile (with confirmation)."
+    )
+    parser.add_argument(
         "--install",
         action="store_true",
         help="Install a 'claude' shim so you can type claude instead of claude-switch.",
@@ -99,7 +105,7 @@ def main() -> None:
         uninstall_shim()
         sys.exit(0)
 
-    config, binary, config_path, is_new = _load(our_args.config)
+    config, config_path, is_new = _load(our_args.config)
 
     if is_new:
         show_first_run(config_path)
@@ -109,9 +115,19 @@ def main() -> None:
         add_profile(config, config_path)
         sys.exit(0)
 
+    if our_args.remove:
+        remove_profile(config, config_path, our_args.remove)
+        sys.exit(0)
+
+    if our_args.edit:
+        edit_profile(config, config_path, our_args.edit)
+        sys.exit(0)
+
     if our_args.list:
         show_list(config.profiles, config_path)
         sys.exit(0)
+
+    binary = find_claude_binary(config.settings)
 
     if our_args.profile:
         _launch_by_key(our_args.profile, config, binary, forward_args)
@@ -123,13 +139,17 @@ def main() -> None:
 
     cwd_key, _ = find_profile_for_cwd(config.profiles)
 
+    last_key = load_state().last_profile
+    if last_key not in config.profiles:
+        last_key = None
+
     show_selector(
         config.profiles,
         binary,
         forward_args,
         config.settings.show_profile_info,
         config_path,
-        default_key=cwd_key,
+        default_key=cwd_key or last_key,
     )
 
 
@@ -152,10 +172,11 @@ def profile() -> None:
 
     parser = _base_parser(prog, f"Launch Claude Code with the '{key}' profile.")
     our_args, forward_args = parser.parse_known_args()
-    config, binary, config_path, is_new = _load(our_args.config)
+    config, config_path, is_new = _load(our_args.config)
 
     if is_new:
         show_first_run(config_path)
         sys.exit(0)
 
+    binary = find_claude_binary(config.settings)
     _launch_by_key(key, config, binary, forward_args)
