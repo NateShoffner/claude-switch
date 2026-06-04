@@ -151,6 +151,7 @@ def save_config(config: Config, path: Path) -> None:
         }
         for key, p in config.profiles.items()
     }
+    raw["settings"] = config.settings.model_dump()
     path.write_text(json.dumps(raw, indent=2))
 
 
