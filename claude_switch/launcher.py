@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .config import Profile
+from .state import State, save_state
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ def launch(
 
     env = os.environ.copy()
     env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+
+    save_state(State(last_profile=profile_key))
 
     try:
         result = subprocess.run([binary, *forward_args], env=env)
