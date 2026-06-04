@@ -119,6 +119,9 @@ If multiple profiles match, the one with the most specific pattern wins. On a ti
 claude-switch                             # interactive selector
 claude-switch --profile work              # jump directly to a profile
 claude-switch --list                      # show all profiles and their status
+claude-switch --add                       # add a new profile interactively
+claude-switch --edit work                 # edit an existing profile interactively
+claude-switch --remove work               # remove a profile (with confirmation)
 claude-switch --config ~/other.json       # use an alternate config file
 claude-switch --install / --uninstall     # manage the 'claude' shim
 ```
