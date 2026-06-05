@@ -14,29 +14,145 @@ from prompt_toolkit import print_formatted_text as _print
 from prompt_toolkit.formatted_text import FormattedText
 from questionary import Style
 
-from .config import Profile, save_config
+from .config import Profile, die, save_config
+from .keystore import get_admin_key, keychain_available, remove_from_keychain, store_in_keychain
 from .launcher import launch
+from .usage import (
+    RateLimitInfo, UsageData,
+    fetch_api_usage, fetch_local_usage, fetch_rate_limits, fetch_session_usage,
+    fmt_tokens,
+)
 
 _VERSION = importlib.metadata.version("claude-switch")
 
 _STYLE = Style(
     [
-        ("qmark", "fg:#5fd7ff bold"),
+        ("qmark", "fg:#47b8d4 bold"),
         ("question", "bold"),
-        ("answer", "fg:#5fd7ff bold"),
-        ("pointer", "fg:#5fd7ff bold"),
-        ("highlighted", "fg:#ffffff bold"),
-        ("selected", "fg:#5fd7ff"),
-        ("instruction", "fg:#555555"),
+        ("answer", "fg:#47b8d4 bold"),
+        ("pointer", "fg:#47b8d4 bold"),
+        ("highlighted", "fg:#e0e0e0 bold"),
+        ("selected", "fg:#47b8d4"),
+        ("instruction", "fg:#6a6a6a"),
+        ("separator", "fg:#6a6a6a"),
     ]
 )
 
-# Palette
-_CYAN = "#5fd7ff"
-_WHITE = "#ffffff"
-_DIM = "#555555"
-_GREEN = "#5fff87"
-_AMBER = "#ffaf00"
+# Palette — muted, easy on dark terminals
+_CYAN  = "#47b8d4"
+_WHITE = "#e0e0e0"
+_DIM   = "#6a6a6a"
+_GREEN = "#52b36a"
+_AMBER = "#c88c00"
+_RED   = "#c04040"
+
+
+_BAR_WIDTH = 40  # characters
+
+
+def _usage_color(pct: float | None) -> str:
+    if pct is None:
+        return _WHITE
+    if pct >= 90:
+        return _RED
+    if pct >= 60:
+        return _AMBER
+    return _GREEN
+
+
+def _progress_bar(pct: float | None, width: int = _BAR_WIDTH) -> list[tuple[str, str]]:
+    """Render a filled progress bar as FormattedText fragments."""
+    filled = round((pct or 0) / 100 * width)
+    color = _usage_color(pct)
+    return [
+        (f"fg:{color} bg:{color}", "█" * filled),
+        (f"fg:#3a3a3a bg:#3a3a3a", "█" * (width - filled)),
+    ]
+
+
+def _usage_panel_rows(
+    usage: UsageData,
+    tz: str = "UTC",
+    indent: str = "  ",
+) -> list[tuple[str, str]]:
+    """Build FormattedText rows for one usage panel (session or week)."""
+    pct = usage.pct
+    color = _usage_color(pct)
+    label = "Current session" if usage.label == "session" else "Current week (all models)"
+
+    token_str = fmt_tokens(usage.tokens)
+    pct_str = f"{pct:.0f}% used  ({token_str})" if pct is not None else f"{token_str} tokens"
+    reset_str = _format_reset(usage, tz)
+
+    rows: list[tuple[str, str]] = [
+        (f"fg:{_WHITE} bold", f"{indent}{label}"),
+        ("", "\n"),
+    ]
+    if reset_str:
+        rows += [
+            (f"fg:{_DIM}", f"{indent}Resets {reset_str}"),
+            ("", "\n"),
+        ]
+    rows += (
+        [("", indent)]
+        + _progress_bar(pct)
+        + [
+            ("", "  "),
+            (f"fg:{color}", pct_str),
+            ("", "\n"),
+        ]
+    )
+    return rows
+
+
+def _local_tz_name() -> str:
+    """Return an IANA timezone name if possible, else a UTC-offset string."""
+    try:
+        import tzlocal
+        return str(tzlocal.get_localzone())
+    except Exception:
+        pass
+    try:
+        from datetime import datetime
+        offset = datetime.now().astimezone().utcoffset()
+        if offset is not None:
+            total = int(offset.total_seconds())
+            h, m = divmod(abs(total) // 60, 60)
+            sign = "+" if total >= 0 else "-"
+            return f"UTC{sign}{h}" if m == 0 else f"UTC{sign}{h}:{m:02d}"
+    except Exception:
+        pass
+    return "UTC"
+
+
+
+def _format_reset(usage: UsageData, tz: str) -> str | None:
+    from datetime import datetime, timezone as _tz
+    if usage.reset_at is None:
+        return None
+
+    delta = usage.reset_at - datetime.now(tz=_tz.utc)
+    if delta.total_seconds() <= 0:
+        return "soon"
+
+    # Convert to local time using system timezone
+    try:
+        from zoneinfo import ZoneInfo
+        local = usage.reset_at.astimezone(ZoneInfo(tz))
+    except Exception:
+        local = usage.reset_at.astimezone()  # system local
+
+    now_local = datetime.now().astimezone(local.tzinfo)
+    h = local.hour
+    ampm = "am" if h < 12 else "pm"
+    h12 = h % 12 or 12
+    minute_str = f":{local.minute:02d}" if local.minute else ""
+    time_str = f"{h12}{minute_str}{ampm}"
+
+    if local.date() == now_local.date():
+        return f"{time_str} ({tz})"
+    months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    return f"{months[local.month - 1]} {local.day}, {time_str} ({tz})"
 
 
 def _box(rows: list[list[tuple[str, str]]], width: int = 54) -> list[tuple[str, str]]:
@@ -153,6 +269,60 @@ def _open_config(config_path: Path) -> None:
         subprocess.Popen([editor, str(config_path)])
 
 
+def _fetch_profile_usage(profiles: dict[str, Profile]) -> dict[str, list[UsageData]]:
+    result: dict[str, list[UsageData]] = {}
+    for key, p in profiles.items():
+        # Rate-limit headers give exact utilisation % and reset times
+        rl = fetch_rate_limits(p.config_dir)
+
+        session = fetch_session_usage(p.config_dir, p.session_token_limit)
+        if session and rl:
+            session.direct_pct = rl.session_pct
+            session.reset_at = rl.session_reset_at
+
+        weekly = fetch_local_usage(p.config_dir, p.weekly_token_limit)
+        if not weekly:
+            api_key = get_admin_key(key, p)
+            if api_key:
+                weekly = fetch_api_usage(api_key, p.weekly_token_limit)
+        if weekly and rl:
+            weekly.direct_pct = rl.week_pct
+            weekly.reset_at = rl.week_reset_at
+
+        entries = [e for e in [session, weekly] if e is not None]
+        if entries:
+            result[key] = entries
+    return result
+
+
+_COMPACT_BAR_WIDTH = 16
+
+
+def _compact_usage_line(entries: list[UsageData], tz: str) -> str:
+    """One-line usage summary for the selector, e.g.:
+    S █████───────── 36%   W ██────────────── 14%   resets 7:49pm (UTC-4)
+
+    Uses █ / ─ so filled vs empty is unambiguous in monochrome separator text.
+    """
+    parts: list[str] = []
+    reset_str: str | None = None
+
+    for u in entries:
+        pct = u.pct
+        label = "S" if u.label == "session" else "W"
+        filled = round((pct or 0) / 100 * _COMPACT_BAR_WIDTH)
+        bar = "█" * filled + "─" * (_COMPACT_BAR_WIDTH - filled)
+        pct_part = f"{pct:.0f}%" if pct is not None else fmt_tokens(u.tokens)
+        parts.append(f"{label} {bar} {pct_part}")
+        if reset_str is None:
+            reset_str = _format_reset(u, tz)
+
+    line = "   ".join(parts)
+    if reset_str:
+        line += f"   resets {reset_str}"
+    return line
+
+
 def show_selector(
     profiles: dict[str, Profile],
     binary: str,
@@ -165,6 +335,9 @@ def show_selector(
     sys.stdout.flush()
     _print_header(profiles, config_path)
 
+    usage_map = _fetch_profile_usage(profiles)
+    tz = _local_tz_name()
+
     choices = []
     items = list(profiles.items())
     for i, (key, p) in enumerate(items):
@@ -175,6 +348,11 @@ def show_selector(
             title += f"  —  {p.description}"
         title += f"  [{key}]"
         choices.append(questionary.Choice(title=title, value=key))
+
+        if key in usage_map:
+            line = _compact_usage_line(usage_map[key], tz)
+            choices.append(questionary.Separator(f"    {line}"))
+
         if i < len(items) - 1:
             choices.append(questionary.Separator(""))
 
@@ -383,8 +561,141 @@ def edit_profile(config, config_path: Path, key: str) -> None:
     )
 
 
+def set_key(config, config_path: Path, key: str) -> None:
+    """Interactively store an admin API key for a profile in the OS keychain."""
+    if key not in config.profiles:
+        available = ", ".join(config.profiles.keys())
+        die(f"Profile '{key}' not found. Available: {available}")
+
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
+    _print_header(config.profiles, config_path)
+
+    p = config.profiles[key]
+    _print(
+        FormattedText(
+            [
+                ("", "  "),
+                (f"fg:{_DIM}", "Setting admin API key for: "),
+                (f"fg:{_CYAN}", p.name),
+                ("", "\n\n"),
+            ]
+        )
+    )
+
+    if keychain_available():
+        storage = "OS keychain (Windows Credential Manager / macOS Keychain)"
+    else:
+        storage = "config file (keyring not installed — pip install keyring for secure storage)"
+
+    _print(
+        FormattedText(
+            [
+                (f"fg:{_DIM}", f"  Key will be stored in: {storage}"),
+                ("", "\n\n"),
+            ]
+        )
+    )
+
+    import getpass
+
+    api_key = getpass.getpass("  Admin API key: ").strip()
+    if not api_key:
+        _print(FormattedText([(f"fg:{_AMBER}", "  Cancelled.\n")]))
+        return
+
+    if keychain_available():
+        if store_in_keychain(key, api_key):
+            # Remove plaintext key from config if it was there
+            if config.profiles[key].admin_api_key:
+                config.profiles[key] = config.profiles[key].model_copy(
+                    update={"admin_api_key": None}
+                )
+                save_config(config, config_path)
+            _print(
+                FormattedText(
+                    [
+                        ("", "\n"),
+                        (f"fg:{_GREEN} bold", "  ✓ "),
+                        (f"fg:{_WHITE}", "Key stored in OS keychain."),
+                        ("", "\n\n"),
+                    ]
+                )
+            )
+        else:
+            _print(
+                FormattedText(
+                    [(f"fg:{_AMBER}", "  Keychain store failed — key was not saved.\n\n")]
+                )
+            )
+    else:
+        # Fall back to plaintext config with a warning
+        config.profiles[key] = config.profiles[key].model_copy(
+            update={"admin_api_key": api_key}
+        )
+        save_config(config, config_path)
+        _print(
+            FormattedText(
+                [
+                    ("", "\n"),
+                    (f"fg:{_AMBER} bold", "  ⚠ "),
+                    (
+                        f"fg:{_WHITE}",
+                        "Key saved to config file (plaintext).",
+                    ),
+                    ("", "\n"),
+                    (
+                        f"fg:{_DIM}",
+                        "    Install keyring for secure storage: pip install keyring\n\n",
+                    ),
+                ]
+            )
+        )
+
+
+def remove_key(config, config_path: Path, key: str) -> None:
+    """Remove the admin API key for a profile from the keychain and/or config."""
+    if key not in config.profiles:
+        available = ", ".join(config.profiles.keys())
+        die(f"Profile '{key}' not found. Available: {available}")
+
+    removed_keychain = remove_from_keychain(key)
+    p = config.profiles[key]
+    removed_config = bool(p.admin_api_key)
+    if removed_config:
+        config.profiles[key] = p.model_copy(update={"admin_api_key": None})
+        save_config(config, config_path)
+
+    if removed_keychain or removed_config:
+        sources = []
+        if removed_keychain:
+            sources.append("keychain")
+        if removed_config:
+            sources.append("config")
+        _print(
+            FormattedText(
+                [
+                    ("", "\n"),
+                    (f"fg:{_GREEN} bold", "  ✓ "),
+                    (f"fg:{_WHITE}", f"Key removed from {' and '.join(sources)}."),
+                    ("", "\n\n"),
+                ]
+            )
+        )
+    else:
+        _print(
+            FormattedText(
+                [
+                    ("", "\n"),
+                    (f"fg:{_AMBER}", "  No key found for this profile.\n\n"),
+                ]
+            )
+        )
+
+
 def show_list(profiles: dict[str, Profile], config_path) -> None:
     _print_header(profiles, config_path)
+    usage_map = _fetch_profile_usage(profiles)
     for key, p in profiles.items():
         config_dir = Path(p.config_dir)
         initialised = config_dir.exists()
@@ -392,6 +703,7 @@ def show_list(profiles: dict[str, Profile], config_path) -> None:
         dot = "●" if initialised else "○"
         status = "" if initialised else "  not initialised"
 
+        # Profile header line
         _print(
             FormattedText(
                 [
@@ -407,7 +719,19 @@ def show_list(profiles: dict[str, Profile], config_path) -> None:
                         else []
                     ),
                     (f"fg:{_DIM}", f"     {config_dir}"),
-                    ("", "\n\n"),
+                    ("", "\n"),
                 ]
             )
         )
+
+        # Usage panels (session + week)
+        entries = usage_map.get(key, [])
+        if entries:
+            tz = _local_tz_name()
+            rows: list[tuple[str, str]] = [("", "\n")]
+            for u in entries:
+                rows += _usage_panel_rows(u, tz=tz, indent="     ")
+                rows.append(("", "\n"))
+            _print(FormattedText(rows))
+        else:
+            _print(FormattedText([("", "\n")]))

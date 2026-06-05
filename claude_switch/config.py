@@ -25,6 +25,10 @@ class Profile(BaseModel):
     config_dir: str
     description: str = ""
     working_paths: list[str] = []
+    admin_api_key: str | None = None
+    admin_api_key_env: str | None = None
+    weekly_token_limit: int | None = None
+    session_token_limit: int | None = None
 
     @field_validator("config_dir")
     @classmethod
@@ -148,6 +152,10 @@ def save_config(config: Config, path: Path) -> None:
             "config_dir": p.config_dir,
             **({"description": p.description} if p.description else {}),
             **({"working_paths": p.working_paths} if p.working_paths else {}),
+            **({"admin_api_key": p.admin_api_key} if p.admin_api_key else {}),
+            **({"admin_api_key_env": p.admin_api_key_env} if p.admin_api_key_env else {}),
+            **({"weekly_token_limit": p.weekly_token_limit} if p.weekly_token_limit else {}),
+            **({"session_token_limit": p.session_token_limit} if p.session_token_limit else {}),
         }
         for key, p in config.profiles.items()
     }
