@@ -7,6 +7,7 @@ import os
 import platform
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import questionary
@@ -269,27 +270,31 @@ def _open_config(config_path: Path) -> None:
         subprocess.Popen([editor, str(config_path)])
 
 
+def _fetch_one_profile_usage(key: str, p: Profile) -> list[UsageData]:
+    # Rate-limit headers give exact utilisation % and reset times
+    rl = fetch_rate_limits(p.config_dir)
+
+    session = fetch_session_usage(p.config_dir, p.session_token_limit)
+    if session and rl:
+        session.direct_pct = rl.session_pct
+        session.reset_at = rl.session_reset_at
+
+    weekly = fetch_local_usage(p.config_dir, p.weekly_token_limit)
+    if not weekly:
+        api_key = get_admin_key(key, p)
+        if api_key:
+            weekly = fetch_api_usage(api_key, p.weekly_token_limit)
+    if weekly and rl:
+        weekly.direct_pct = rl.week_pct
+        weekly.reset_at = rl.week_reset_at
+
+    return [e for e in [session, weekly] if e is not None]
+
+
 def _fetch_profile_usage(profiles: dict[str, Profile]) -> dict[str, list[UsageData]]:
     result: dict[str, list[UsageData]] = {}
     for key, p in profiles.items():
-        # Rate-limit headers give exact utilisation % and reset times
-        rl = fetch_rate_limits(p.config_dir)
-
-        session = fetch_session_usage(p.config_dir, p.session_token_limit)
-        if session and rl:
-            session.direct_pct = rl.session_pct
-            session.reset_at = rl.session_reset_at
-
-        weekly = fetch_local_usage(p.config_dir, p.weekly_token_limit)
-        if not weekly:
-            api_key = get_admin_key(key, p)
-            if api_key:
-                weekly = fetch_api_usage(api_key, p.weekly_token_limit)
-        if weekly and rl:
-            weekly.direct_pct = rl.week_pct
-            weekly.reset_at = rl.week_reset_at
-
-        entries = [e for e in [session, weekly] if e is not None]
+        entries = _fetch_one_profile_usage(key, p)
         if entries:
             result[key] = entries
     return result
@@ -335,11 +340,11 @@ def show_selector(
     sys.stdout.flush()
     _print_header(profiles, config_path)
 
-    usage_map = _fetch_profile_usage(profiles)
     tz = _local_tz_name()
 
     choices = []
     items = list(profiles.items())
+    usage_seps: dict[str, questionary.Separator] = {}
     for i, (key, p) in enumerate(items):
         initialised = Path(p.config_dir).exists()
         dot = "● " if initialised else "○ "
@@ -349,9 +354,10 @@ def show_selector(
         title += f"  [{key}]"
         choices.append(questionary.Choice(title=title, value=key))
 
-        if key in usage_map:
-            line = _compact_usage_line(usage_map[key], tz)
-            choices.append(questionary.Separator(f"    {line}"))
+        if initialised:
+            sep = questionary.Separator("    loading usage…")
+            usage_seps[key] = sep
+            choices.append(sep)
 
         if i < len(items) - 1:
             choices.append(questionary.Separator(""))
@@ -362,7 +368,7 @@ def show_selector(
 
     default_choice = next((c for c in choices if isinstance(c, questionary.Choice) and c.value == default_key), None)
 
-    answer = questionary.select(
+    question = questionary.select(
         "Which account?",
         choices=choices,
         default=default_choice,
@@ -371,7 +377,30 @@ def show_selector(
         use_jk_keys=False,
         use_search_filter=True,
         instruction="(↑↓ · type to filter · enter)",
-    ).ask()
+    )
+
+    def _load_usage(key: str, p: Profile) -> None:
+        try:
+            entries = _fetch_one_profile_usage(key, p)
+        except Exception:
+            entries = []
+        sep = usage_seps[key]
+        if entries:
+            sep.title = f"    {_compact_usage_line(entries, tz)}"
+        else:
+            sep.title = "    no usage data"
+        try:
+            question.application.invalidate()  # thread-safe
+        except Exception:
+            pass
+
+    for key, p in items:
+        if key in usage_seps:
+            threading.Thread(
+                target=_load_usage, args=(key, p), daemon=True
+            ).start()
+
+    answer = question.ask()
 
     if not answer:
         sys.exit(0)
