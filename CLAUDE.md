@@ -52,4 +52,5 @@ python -m claude_switch.cli
 - `working_paths` glob matching uses `fnmatch`; specificity is the index of the first `*` (longer literal prefix = more specific).
 - The shim installs a `.claude-switch-shim` marker file alongside the shim scripts so `--uninstall` can find them by scanning PATH.
 - The UI clears the screen before rendering the selector (`\033[2J\033[H`).
+- `default` is a reserved built-in profile (`config.DEFAULT_KEY`) for stock `~/.claude`. It is not stored in the config; use `Config.all_profiles()` wherever it should appear. Launching it unsets `CLAUDE_CONFIG_DIR` rather than setting it, because the stock layout keeps `.claude.json` in the home dir.
 - `launcher.py` always calls `sys.exit(result.returncode)` so the exit code from Claude propagates.

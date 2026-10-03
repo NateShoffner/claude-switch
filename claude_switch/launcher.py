@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .config import Profile
+from .config import DEFAULT_KEY, Profile
 from .state import State, save_state
 
 log = logging.getLogger(__name__)
@@ -32,7 +32,12 @@ def launch(
         log.info("")
 
     env = os.environ.copy()
-    env["CLAUDE_CONFIG_DIR"] = str(config_dir)
+    if profile_key == DEFAULT_KEY:
+        # Claude's stock layout keeps .claude.json in the home dir, not inside
+        # ~/.claude, so pointing CLAUDE_CONFIG_DIR at ~/.claude is not equivalent.
+        env.pop("CLAUDE_CONFIG_DIR", None)
+    else:
+        env["CLAUDE_CONFIG_DIR"] = str(config_dir)
 
     save_state(State(last_profile=profile_key))
 

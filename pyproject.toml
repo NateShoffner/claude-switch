@@ -15,6 +15,7 @@ keyring = ["keyring>=24.0.0"]
 
 [project.scripts]
 claude-switch = "claude_switch.cli:main"
+claude-default = "claude_switch.cli:profile"
 
 [build-system]
 requires = ["hatchling"]

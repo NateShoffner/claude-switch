@@ -15,7 +15,7 @@ from prompt_toolkit import print_formatted_text as _print
 from prompt_toolkit.formatted_text import FormattedText
 from questionary import Style
 
-from .config import Profile, die, save_config
+from .config import DEFAULT_KEY, Profile, die, save_config
 from .keystore import get_admin_key, keychain_available, remove_from_keychain, store_in_keychain
 from .launcher import launch
 from .usage import (
@@ -426,6 +426,8 @@ def add_profile(config, config_path: Path) -> None:
             return "Key cannot be empty"
         if not val.replace("-", "").replace("_", "").isalnum():
             return "Key can only contain letters, numbers, hyphens, and underscores"
+        if val == DEFAULT_KEY:
+            return f"'{DEFAULT_KEY}' is reserved for the built-in ~/.claude profile"
         if val in existing_keys:
             return f"Profile '{val}' already exists"
         return True
@@ -483,9 +485,6 @@ def remove_profile(config, config_path: Path, key: str) -> None:
     if key not in config.profiles:
         available = ", ".join(config.profiles.keys())
         die(f"Profile '{key}' not found. Available: {available}")
-
-    if len(config.profiles) == 1:
-        die("Cannot remove the last profile.")
 
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()

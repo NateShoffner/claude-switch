@@ -48,6 +48,8 @@ This writes a shim so that typing `claude` opens the account selector. Undo it w
 ```bash
 claude-switch                             # interactive selector
 claude-switch --profile work              # jump directly to a profile
+claude-switch -d                          # jump to the built-in default profile (~/.claude)
+claude-default                            # same, as a standalone command
 claude-switch --list                      # show all profiles and usage stats
 claude-switch --add                       # add a new profile interactively
 claude-switch --edit work                 # edit an existing profile
@@ -86,6 +88,10 @@ The config file lives at `~/claude-switch.json`. It's created with defaults on f
   }
 }
 ```
+
+### The `default` profile
+
+`default` is a reserved, built-in profile that always appears first in the selector and `--list`. It launches Claude with `CLAUDE_CONFIG_DIR` unset, so it uses the stock `~/.claude` location shared with the Claude desktop app. Jump to it with `-d` / `--default` or `--profile default`. It can't be defined in the config file, and `--edit`, `--remove`, `--set-key`, `--remove-key`, `--usage` and `--sync-plan` don't apply to it.
 
 ### Profile fields
 

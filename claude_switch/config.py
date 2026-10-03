@@ -19,6 +19,10 @@ def _default_config_locations() -> list[Path]:
 
 _DEFAULT_CONFIG_LOCATIONS = _default_config_locations()
 
+# Reserved key for Claude's stock config location (~/.claude), which is what the
+# Claude desktop app uses. It always exists and cannot be defined in the config.
+DEFAULT_KEY = "default"
+
 
 class Profile(BaseModel):
     name: str
@@ -88,16 +92,31 @@ class Settings(BaseModel):
     show_profile_info: bool = True
 
 
+def default_profile() -> Profile:
+    return Profile(
+        name="Default",
+        config_dir="~/.claude",
+        description="Stock ~/.claude, shared with the Claude desktop app",
+    )
+
+
 class Config(BaseModel):
-    profiles: dict[str, Profile]
+    profiles: dict[str, Profile] = {}
     settings: Settings = Settings()
 
     @field_validator("profiles")
     @classmethod
-    def require_profiles(cls, v: dict) -> dict:
-        if not v:
-            raise ValueError("at least one profile must be defined")
+    def reject_reserved_key(cls, v: dict) -> dict:
+        if DEFAULT_KEY in v:
+            raise ValueError(
+                f"'{DEFAULT_KEY}' is a reserved profile name (it always points at ~/.claude); "
+                "rename that profile"
+            )
         return v
+
+    def all_profiles(self) -> dict[str, Profile]:
+        """Configured profiles plus the built-in default, which is listed first."""
+        return {DEFAULT_KEY: default_profile(), **self.profiles}
 
 
 _DEFAULT_CONFIG = {

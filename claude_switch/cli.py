@@ -15,7 +15,7 @@ from pathlib import Path
 logging.basicConfig(format="  %(levelname)s: %(message)s", level=logging.WARNING)
 
 from .binary import find_claude_binary
-from .config import Config, die, find_config, find_profile_for_cwd, load_config
+from .config import DEFAULT_KEY, Config, die, find_config, find_profile_for_cwd, load_config
 from .keystore import get_admin_key
 from .launcher import launch
 from .shim import install_shim, uninstall_shim
@@ -147,6 +147,11 @@ def _sync_plan(key: str, config: Config, config_path) -> None:
         print("  Use the profile first, then run --sync-plan again.\n")
 
 
+def _reject_default(key: str, action: str) -> None:
+    if key == DEFAULT_KEY:
+        die(f"The '{DEFAULT_KEY}' profile is built in (~/.claude) and cannot be used with {action}.")
+
+
 def _base_parser(prog: str, description: str) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog=prog, description=description)
     p.add_argument(
@@ -167,12 +172,13 @@ def _load(config_override: str | None) -> tuple[Config, Path, bool]:
 def _launch_by_key(
     key: str, config: Config, binary: str, forward_args: list[str]
 ) -> None:
-    if key not in config.profiles:
-        available = ", ".join(config.profiles.keys())
+    profiles = config.all_profiles()
+    if key not in profiles:
+        available = ", ".join(profiles.keys())
         die(f"Unknown profile '{key}'. Available: {available}")
     launch(
         key,
-        config.profiles[key],
+        profiles[key],
         binary,
         forward_args,
         config.settings.show_profile_info,
@@ -193,6 +199,12 @@ def main() -> None:
         "-p",
         metavar="NAME",
         help="Launch a specific profile directly, skipping the selector.",
+    )
+    parser.add_argument(
+        "--default",
+        "-d",
+        action="store_true",
+        help=f"Launch the built-in '{DEFAULT_KEY}' profile (~/.claude, shared with the desktop app).",
     )
     parser.add_argument(
         "--list",
@@ -256,6 +268,17 @@ def main() -> None:
         show_first_run(config_path)
         sys.exit(0)
 
+    for flag, value in (
+        ("--set-key", our_args.set_key),
+        ("--remove-key", our_args.remove_key),
+        ("--usage", our_args.usage),
+        ("--sync-plan", our_args.sync_plan),
+        ("--edit", our_args.edit),
+        ("--remove", our_args.remove),
+    ):
+        if value:
+            _reject_default(value, flag)
+
     if our_args.set_key:
         set_key(config, config_path, our_args.set_key)
         sys.exit(0)
@@ -285,10 +308,14 @@ def main() -> None:
         sys.exit(0)
 
     if our_args.list:
-        show_list(config.profiles, config_path)
+        show_list(config.all_profiles(), config_path)
         sys.exit(0)
 
     binary = find_claude_binary(config.settings)
+
+    if our_args.default:
+        _launch_by_key(DEFAULT_KEY, config, binary, forward_args)
+        return
 
     if our_args.profile:
         _launch_by_key(our_args.profile, config, binary, forward_args)
@@ -300,12 +327,13 @@ def main() -> None:
 
     cwd_key, _ = find_profile_for_cwd(config.profiles)
 
+    profiles = config.all_profiles()
     last_key = load_state().last_profile
-    if last_key not in config.profiles:
+    if last_key not in profiles:
         last_key = None
 
     show_selector(
-        config.profiles,
+        profiles,
         binary,
         forward_args,
         config.settings.show_profile_info,
