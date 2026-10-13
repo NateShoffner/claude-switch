@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 logging.basicConfig(format="  %(levelname)s: %(message)s", level=logging.WARNING)
@@ -19,7 +20,8 @@ from .config import DEFAULT_KEY, Config, die, find_config, find_profile_for_cwd,
 from .keystore import get_admin_key
 from .launcher import launch
 from .shim import install_shim, uninstall_shim
-from .state import load_state
+from .state import load_state, save_state
+from .warm import FAILED, install_schedule, uninstall_schedule, warm_profile
 from .ui import add_profile, edit_profile, remove_key, remove_profile, set_key, show_first_run, show_list, show_selector
 from .usage import fetch_local_usage, fetch_rate_limits, fetch_session_usage, fetch_weekly_usage, fmt_tokens
 
@@ -147,6 +149,34 @@ def _sync_plan(key: str, config: Config, config_path) -> None:
         print("  Use the profile first, then run --sync-plan again.\n")
 
 
+def _warm(config: Config, only: str | None) -> int:
+    profiles = config.all_profiles()
+    if only:
+        if only not in profiles:
+            die(f"Unknown profile '{only}'. Available: {', '.join(profiles)}")
+        profiles = {only: profiles[only]}
+
+    # Only needed for the fallback path, so a missing binary isn't fatal.
+    try:
+        binary = find_claude_binary(config.settings)
+    except SystemExit:
+        binary = None
+
+    state = load_state()
+    failed = False
+    for key, profile in profiles.items():
+        result = warm_profile(key, profile, binary, state)
+        if result.status == FAILED:
+            failed = True
+            detail = "no usable credentials (launch the profile and log in)"
+        else:
+            ends = datetime.fromtimestamp(result.reset_at).strftime("%H:%M")
+            detail = f"window ends {ends}"
+        print(f"  {key:<12} {result.status:<8} {detail}")
+    save_state(state)
+    return 1 if failed else 0
+
+
 def _reject_default(key: str, action: str) -> None:
     if key == DEFAULT_KEY:
         die(f"The '{DEFAULT_KEY}' profile is built in (~/.claude) and cannot be used with {action}.")
@@ -252,6 +282,22 @@ def main() -> None:
         help="Fetch current rate limits for a profile and save to config.",
     )
 
+    parser.add_argument(
+        "--warm",
+        action="store_true",
+        help="Start the 5-hour usage window for every profile (or just --profile) if not already running.",
+    )
+    parser.add_argument(
+        "--install-warm",
+        action="store_true",
+        help="Schedule 'claude-switch --warm' to run periodically.",
+    )
+    parser.add_argument(
+        "--uninstall-warm",
+        action="store_true",
+        help="Remove the schedule created by --install-warm.",
+    )
+
     our_args, forward_args = parser.parse_known_args()
 
     if our_args.install:
@@ -260,6 +306,14 @@ def main() -> None:
 
     if our_args.uninstall:
         uninstall_shim()
+        sys.exit(0)
+
+    if our_args.install_warm:
+        install_schedule()
+        sys.exit(0)
+
+    if our_args.uninstall_warm:
+        uninstall_schedule()
         sys.exit(0)
 
     config, config_path, is_new = _load(our_args.config)
@@ -310,6 +364,9 @@ def main() -> None:
     if our_args.list:
         show_list(config.all_profiles(), config_path)
         sys.exit(0)
+
+    if our_args.warm:
+        sys.exit(_warm(config, our_args.profile))
 
     binary = find_claude_binary(config.settings)
 

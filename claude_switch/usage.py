@@ -164,12 +164,17 @@ def _parse_rate_limit_headers(headers) -> RateLimitInfo | None:
         return None
 
 
-def _load_rate_cache(path: Path) -> RateLimitInfo | None:
+def load_rate_cache(config_dir: str, max_age: float | None = _RATE_LIMIT_TTL) -> RateLimitInfo | None:
+    """Read the cached rate-limit info; max_age=None accepts a cache of any age."""
+    return _load_rate_cache(Path(config_dir) / _RATE_LIMIT_CACHE_FILE, max_age)
+
+
+def _load_rate_cache(path: Path, max_age: float | None = _RATE_LIMIT_TTL) -> RateLimitInfo | None:
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if time.time() - data.get("fetched_at", 0) > _RATE_LIMIT_TTL:
+        if max_age is not None and time.time() - data.get("fetched_at", 0) > max_age:
             return None
         return RateLimitInfo(
             session_pct=data["session_pct"],

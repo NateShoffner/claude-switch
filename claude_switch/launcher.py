@@ -7,9 +7,21 @@ import sys
 from pathlib import Path
 
 from .config import DEFAULT_KEY, Profile
-from .state import State, save_state
+from .state import load_state, save_state
 
 log = logging.getLogger(__name__)
+
+
+def profile_env(profile_key: str, profile: Profile) -> dict[str, str]:
+    """Environment for running Claude under a profile."""
+    env = os.environ.copy()
+    if profile_key == DEFAULT_KEY:
+        # Claude's stock layout keeps .claude.json in the home dir, not inside
+        # ~/.claude, so pointing CLAUDE_CONFIG_DIR at ~/.claude is not equivalent.
+        env.pop("CLAUDE_CONFIG_DIR", None)
+    else:
+        env["CLAUDE_CONFIG_DIR"] = profile.config_dir
+    return env
 
 
 def launch(
@@ -31,18 +43,12 @@ def launch(
         log.info("  Binary   : %s", binary)
         log.info("")
 
-    env = os.environ.copy()
-    if profile_key == DEFAULT_KEY:
-        # Claude's stock layout keeps .claude.json in the home dir, not inside
-        # ~/.claude, so pointing CLAUDE_CONFIG_DIR at ~/.claude is not equivalent.
-        env.pop("CLAUDE_CONFIG_DIR", None)
-    else:
-        env["CLAUDE_CONFIG_DIR"] = str(config_dir)
-
-    save_state(State(last_profile=profile_key))
+    state = load_state()
+    state.last_profile = profile_key
+    save_state(state)
 
     try:
-        result = subprocess.run([binary, *forward_args], env=env)
+        result = subprocess.run([binary, *forward_args], env=profile_env(profile_key, profile))
         sys.exit(result.returncode)
     except FileNotFoundError:
         log.error("Binary not found or not executable: %s", binary)
