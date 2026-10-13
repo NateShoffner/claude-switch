@@ -12,6 +12,8 @@ _STATE_PATH = Path.home() / ".claude-switch-state.json"
 
 class State(BaseModel):
     last_profile: str | None = None
+    # profile key -> unix time its 5-hour window ends
+    warmed_until: dict[str, float] = {}
 
 
 def load_state() -> State:

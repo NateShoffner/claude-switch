@@ -11,7 +11,8 @@ claude_switch/
   launcher.py  — sets CLAUDE_CONFIG_DIR and exec()s the Claude binary
   binary.py    — locates the claude binary (PATH or settings.claude_binary)
   shim.py      — installs/uninstalls a 'claude' shim that delegates to claude-switch
-  state.py     — persists last-used profile to ~/.claude-switch-state.json
+  state.py     — persists last-used profile and warmed window ends to ~/.claude-switch-state.json
+  warm.py      — starts each profile's 5-hour usage window (--warm) and schedules it (--install-warm)
   ui.py        — questionary-based TUI: selector, list, add/edit/remove profile flows
 ```
 

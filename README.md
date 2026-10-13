@@ -59,6 +59,8 @@ claude-switch --set-key personal          # store an admin API key in the OS key
 claude-switch --remove-key personal       # remove a stored admin API key
 claude-switch --config ~/other.json       # use an alternate config file
 claude-switch --install / --uninstall     # manage the 'claude' shim
+claude-switch --warm                      # start the 5-hour window for every profile
+claude-switch --install-warm              # run --warm on a schedule (every 30 min)
 ```
 
 ---
@@ -128,6 +130,14 @@ The selector and `--list` view show live session and weekly token usage for each
 Token counts are read from Claude Code's local files. Utilisation percentages and exact reset times are fetched from Anthropic's rate-limit headers using the OAuth token already stored in each profile's config dir — no extra setup required.
 
 Results are cached for 5 minutes so the selector stays fast.
+
+### Keeping the 5-hour window warm
+
+The 5-hour session window starts at your first message and runs for five hours. `claude-switch --warm` makes sure each profile has one running: if a window is already known to be active it does nothing, otherwise it sends a single 1-token Haiku request, which opens a new window at negligible cost. Use `--warm --profile work` to limit it to one profile.
+
+`claude-switch --install-warm` schedules this every 30 minutes (Task Scheduler on Windows, cron elsewhere); `--uninstall-warm` removes it. Because an active window makes each run a free no-op, the interval only bounds how late a new window starts after the last one ends.
+
+If a profile's OAuth token has expired, `--warm` falls back to a short `claude -p` call, which also refreshes the token. This sends Claude Code's full system prompt, so it costs more than the direct call. A profile with no credentials at all is reported as `failed`; launch it and log in.
 
 ### Syncing token limits
 
