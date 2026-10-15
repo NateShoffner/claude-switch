@@ -3,7 +3,6 @@ name = "claude-switch"
 version = "0.3.0"
 description = "Multi-account Claude Code launcher"
 keywords = ["claude", "anthropic", "claude-code", "multi-account"]
-authors = [{ name = "Nate Shoffner", email = "nate.shoffner@gmail.com" }]
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["pydantic (>=2.13.4,<3.0.0)", "questionary (>=2.0.0)"]
