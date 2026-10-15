@@ -1,6 +1,6 @@
 [project]
 name = "claude-switch"
-version = "0.2.0"
+version = "0.3.0"
 description = "Multi-account Claude Code launcher"
 keywords = ["claude", "anthropic", "claude-code", "multi-account"]
 authors = [{ name = "Nate Shoffner", email = "nate.shoffner@gmail.com" }]

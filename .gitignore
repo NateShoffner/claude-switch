@@ -1,2 +1,3 @@
 /.claude
 /claude_switch/__pycache__
+dist/
