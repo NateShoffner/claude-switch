@@ -33,6 +33,12 @@ Or directly from GitHub:
 pipx install git+https://github.com/nateshoffner/claude-switch.git
 ```
 
+Or install a wheel from the [latest release](https://github.com/nateshoffner/claude-switch/releases/latest):
+
+```bash
+pipx install claude_switch-0.3.0-py3-none-any.whl
+```
+
 ### Optional: use `claude` instead of `claude-switch`
 
 ```bash

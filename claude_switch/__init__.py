@@ -1,3 +1,3 @@
 """claude-switch: Multi-account Claude Code launcher."""
 
-__version__ = "1.0.0"
+__version__ = "0.3.0"
