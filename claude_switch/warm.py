@@ -53,6 +53,9 @@ def _warm_via_claude(key: str, profile: Profile, binary: str) -> bool:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=120,
+            # Under pythonw there is no console to inherit, so Windows would open a
+            # new one for claude.exe (or cmd.exe for a .cmd shim) and steal focus.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         log.debug("claude warm-up failed: %s", e)
